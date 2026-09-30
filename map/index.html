@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SAP Offices — Isometric Dark Map</title>
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" />
+<style>
+  html, body { margin: 0; height: 100%; background: #0b0e13; }
+  #map { position: absolute; inset: 0; }
+  #hint {
+    position: absolute; left: 12px; bottom: 12px; z-index: 5;
+    font: 12px/1.4 system-ui, sans-serif; color: #9fb0c7;
+    background: rgba(12,16,22,.7); padding: 8px 10px; border-radius: 8px;
+    border: 1px solid #1c2735;
+  }
+  #fit-btn {
+    position: absolute; right: 12px; bottom: 12px; z-index: 5;
+    font: 12px/1 system-ui, sans-serif; color: #e6e1f5;
+    background: rgba(43,35,67,.9); border: 1px solid #4a3c68;
+    padding: 9px 12px; border-radius: 8px; cursor: pointer;
+    transition: background .15s, transform .15s;
+  }
+  #fit-btn:hover { background: rgba(58,47,82,.95); }
+  #fit-btn:active { transform: scale(.96); }
+
+  .poi-marker { width: 30px; height: 42px; }
+  .poi-pin {
+    width: 30px; height: 42px; cursor: pointer;
+    transform-origin: bottom center;
+    animation: drop 0.5s cubic-bezier(.2,.8,.3,1.2);
+    filter: drop-shadow(0 4px 6px rgba(0,0,0,.5));
+  }
+  .poi-pin:hover { animation: bounce 0.5s ease; }
+  @keyframes drop  { from { transform: translateY(-18px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+  @keyframes bounce{ 0%,100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
+
+  .maplibregl-popup-content {
+    background: #1a1526; color: #e6e1f5; border: 1px solid #3a2f52;
+    border-radius: 10px; font: 12px/1.45 system-ui, sans-serif; padding: 12px 14px;
+  }
+  .maplibregl-popup-tip { border-top-color: #1a1526; }
+  .poi-head strong { font-size: 13px; }
+  .poi-sub { color: #a99fc7; }
+  .emp { color: #cfc6e6; margin-top: 3px; font-size: 12px; }
+  .wx { margin-top: 9px; padding-top: 9px; border-top: 1px solid #3a2f52; }
+  .wx-row { display: flex; align-items: center; gap: 6px; }
+  .wx-icon { font-size: 20px; line-height: 1; }
+  .wx-temp { font-size: 16px; font-weight: 600; }
+  .wx-sub { color: #a99fc7; margin-top: 5px; }
+  .wx-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 5px 12px; margin-top: 9px; }
+  .wx-grid > div { display: flex; justify-content: space-between; gap: 8px; }
+  .wx-grid .k { color: #8b93a8; }
+  .wx-grid .v { font-weight: 600; }
+  .wx-coords { margin-top: 9px; color: #7f89a0; font-size: 11px; font-variant-numeric: tabular-nums; }
+  .wx-loading { color: #a99fc7; margin-top: 8px; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div id="hint">Click a pin to zoom · Right-drag = rotate/pitch</div>
+<button id="fit-btn">⤢ Fit all offices</button>
+
+<script>
+// --- palette ---
+const PURPLE      = '#2b2343';
+const PURPLE_ALT  = '#332a4f';
+const PURPLE_DEEP = '#201a30';
+const ROAD_GREY   = '#a3a8b1';
+const GREY_LO     = '#5a5d64';
+const GREY_HI     = '#9a9ea8';
+const BEAM_COLOR  = '#ffd09a';
+const BEAM_CORE   = '#fff0d0';
+const PIN_ZOOM = 16;
+
+// ===== BEAM TUNING =====
+const BEAM_H_MAX = 300;   // metres — height of the TALLEST beacon (largest office)
+const BEAM_H_MIN = 90;    // metres — height of the smallest site
+const CORE_R     = 2.5;   // metres — radius of the bright needle (thin!)
+const HALO_R     = 9;     // metres — radius of the faint outer glow
+const BASE_FRAC  = 0.30;  // lower fraction that stays bright (fake fade)
+// ========================
+
+// ==================== OFFICES (all >500 employees) ====================
+const POIS = [
+  { name: 'Walldorf HQ',          sub: 'Dietmar-Hopp-Allee 16, Walldorf',  lng:   8.64205, lat:  49.29368, employees: 16000, empNote: '2023 press est.' },
+  { name: 'Bengaluru',            sub: 'SAP Labs India, Whitefield',      lng:  77.74289, lat:  12.98592, employees: 15000 },
+  { name: 'Newtown Square',       sub: 'SAP America HQ, Pennsylvania',    lng: -75.41716, lat:  39.98502, employees: 2500 },
+  { name: 'Palo Alto',            sub: 'SAP Labs Silicon Valley, CA',     lng:-122.14531, lat:  37.40169, employees: 2000 },
+  { name: 'São Leopoldo',         sub: 'SAP Labs Latin America, Brazil',  lng: -51.14889, lat: -29.79663, employees: 1700 },
+  { name: 'Shanghai',             sub: 'SAP Labs China, Zhangjiang',      lng: 121.59732, lat:  31.20432, employees: 1500, empNote: 'rough estimate' },
+  { name: 'Sofia',                sub: 'SAP Center, Srebarna 16, Sofia',  lng:  23.32098, lat:  42.65974, employees: 1400 },
+  { name: 'Montreal',             sub: 'SAP Labs Montreal, Quebec',       lng: -73.55663, lat:  45.49688, employees: 1000 },
+  { name: 'Munich (Garching)',    sub: 'SAP Labs, Garching bei München',  lng:  11.66076, lat:  48.26410, employees: 700 },
+  { name: 'Frankfurt (Eschborn)', sub: 'Frankfurter Str. 1, Eschborn',    lng:   8.56495, lat:  50.13264, employees: 500, empNote: 'office capacity' }
+];
+
+// height in metres from employee count (sqrt-compressed)
+const MAX_EMP = Math.max(...POIS.map(p => p.employees || 0));
+function beaconHeight(p) {
+  const t = (p.employees && MAX_EMP) ? Math.sqrt(p.employees / MAX_EMP) : 0.25;
+  return BEAM_H_MIN + (BEAM_H_MAX - BEAM_H_MIN) * t;
+}
+
+// --- WMO code -> [label, icon] ---
+const WMO = {
+  0:['Clear sky','☀️'],1:['Mainly clear','🌤️'],2:['Partly cloudy','⛅'],3:['Overcast','☁️'],
+  45:['Fog','🌫️'],48:['Rime fog','🌫️'],
+  51:['Light drizzle','🌦️'],53:['Drizzle','🌦️'],55:['Heavy drizzle','🌧️'],
+  56:['Freezing drizzle','🌧️'],57:['Freezing drizzle','🌧️'],
+  61:['Light rain','🌧️'],63:['Rain','🌧️'],65:['Heavy rain','🌧️'],
+  66:['Freezing rain','🌧️'],67:['Freezing rain','🌧️'],
+  71:['Light snow','🌨️'],73:['Snow','❄️'],75:['Heavy snow','❄️'],77:['Snow grains','❄️'],
+  80:['Rain showers','🌦️'],81:['Rain showers','🌧️'],82:['Heavy showers','⛈️'],
+  85:['Snow showers','🌨️'],86:['Snow showers','🌨️'],
+  95:['Thunderstorm','⛈️'],96:['Storm + hail','⛈️'],99:['Storm + hail','⛈️']
+};
+const wmo = c => WMO[c] || ['Unknown', '❓'];
+const COMPASS = ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
+const compass = deg => COMPASS[Math.round(deg / 22.5) % 16];
+
+const PIN_SVG = `
+  <svg viewBox="0 0 30 42" width="30" height="42" xmlns="http://www.w3.org/2000/svg">
+    <path d="M15 41C15 41 28 25.5 28 15A13 13 0 1 0 2 15C2 25.5 15 41 15 41Z"
+          fill="#d77757" stroke="#f0a487" stroke-width="1.5"/>
+    <circle cx="15" cy="15" r="5" fill="#201a30"/>
+  </svg>`;
+
+// small circle ring (metres -> degrees) for a beacon footprint
+function circleRing(lng, lat, radiusM, n = 28) {
+  const dLat = radiusM / 111320;
+  const dLng = radiusM / (111320 * Math.cos(lat * Math.PI / 180));
+  const coords = [];
+  for (let i = 0; i <= n; i++) {
+    const a = i / n * 2 * Math.PI;
+    coords.push([lng + Math.cos(a) * dLng, lat + Math.sin(a) * dLat]);
+  }
+  return coords;
+}
+
+// ground-glow sprite (radial)
+function makePoolSprite() {
+  const s = 128;
+  const img = new ImageData(s, s);
+  for (let y = 0; y < s; y++) for (let x = 0; x < s; x++) {
+    const dx = (x - s / 2) / (s / 2), dy = (y - s / 2) / (s / 2);
+    const d = Math.sqrt(dx * dx + dy * dy);
+    const i = (y * s + x) * 4;
+    img.data[i]     = 255;
+    img.data[i + 1] = 208;
+    img.data[i + 2] = 150;
+    img.data[i + 3] = Math.round(255 * Math.pow(Math.max(0, 1 - d), 2.2) * 0.8);
+  }
+  return img;
+}
+
+const map = new maplibregl.Map({
+  container: 'map',
+  style: 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
+  center: [POIS[0].lng, POIS[0].lat],
+  zoom: 15, pitch: 60, bearing: -45,
+  antialias: true,
+  attributionControl: { compact: true }
+});
+
+map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-right');
+
+// ---- Theme ----
+function applyTheme() {
+  for (const l of map.getStyle().layers) {
+    const id = (l.id || '').toLowerCase();
+    const sl = (l['source-layer'] || '').toLowerCase();
+    if (l.type === 'background') {
+      map.setPaintProperty(l.id, 'background-color', PURPLE_DEEP);
+    } else if (l.type === 'fill') {
+      const isTerrain = id.includes('landcover') || id.includes('landuse') || id.includes('park') ||
+        id.includes('wood') || id.includes('grass') || id.includes('sand') ||
+        sl.includes('landcover') || sl.includes('landuse');
+      if (isTerrain) {
+        map.setPaintProperty(l.id, 'fill-color', PURPLE_ALT);
+        map.setPaintProperty(l.id, 'fill-opacity', 1);
+      }
+    } else if (l.type === 'line') {
+      const isRoad = sl.includes('transportation') || id.includes('road') ||
+        id.includes('street') || id.includes('highway') || id.includes('bridge') || id.includes('tunnel');
+      if (isRoad) map.setPaintProperty(l.id, 'line-color', ROAD_GREY);
+    }
+  }
+  map.triggerRepaint();
+}
+map.on('style.load', applyTheme);
+
+// ---- popup content (rich) ----
+function popupHTML(poi, data) {
+  const emp = poi.employees
+    ? `<div class="emp">👥 ≈${poi.employees.toLocaleString()} employees${poi.empNote ? ` · ${poi.empNote}` : ''}</div>`
+    : '';
+  const head = `<div class="poi-head"><strong>${poi.name}</strong><br><span class="poi-sub">${poi.sub}</span>${emp}</div>`;
+  if (data === undefined) return head + `<div class="wx-loading">Loading weather…</div>`;
+  if (data === null)      return head + `<div class="wx-loading">Weather unavailable</div>`;
+
+  const c = data.current;
+  const [label, icon] = wmo(c.weather_code);
+  const localTime = c.time ? c.time.slice(11, 16) : '--:--';
+  const sunrise = data.daily?.sunrise?.[0]?.slice(11, 16) ?? '--:--';
+  const sunset  = data.daily?.sunset?.[0]?.slice(11, 16) ?? '--:--';
+  const windDir = c.wind_direction_10m != null ? compass(c.wind_direction_10m) : '';
+
+  return `
+    ${head}
+    <div class="wx">
+      <div class="wx-row">
+        <span class="wx-icon">${icon}</span>
+        <span class="wx-temp">${Math.round(c.temperature_2m)}°C</span>
+        <span>${label}</span>
+      </div>
+      <div class="wx-sub">Feels like ${Math.round(c.apparent_temperature)}° · 💨 ${Math.round(c.wind_speed_10m)} km/h ${windDir} · 💧 ${c.relative_humidity_2m}%</div>
+      <div class="wx-grid">
+        <div><span class="k">☁️ Cloud</span><span class="v">${c.cloud_cover}%</span></div>
+        <div><span class="k">🌧️ Precip</span><span class="v">${c.precipitation} mm</span></div>
+        <div><span class="k">🌅 Sunrise</span><span class="v">${sunrise}</span></div>
+        <div><span class="k">🌇 Sunset</span><span class="v">${sunset}</span></div>
+        <div><span class="k">🕐 Local</span><span class="v">${localTime}</span></div>
+        <div><span class="k">🧭 Zone</span><span class="v">${data.timezone}</span></div>
+      </div>
+      <div class="wx-coords">${poi.lat.toFixed(5)}, ${poi.lng.toFixed(5)}</div>
+    </div>`;
+}
+
+async function fetchWeather(poi) {
+  const url = 'https://api.open-meteo.com/v1/forecast'
+    + `?latitude=${poi.lat}&longitude=${poi.lng}`
+    + '&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,'
+    + 'cloud_cover,wind_speed_10m,wind_direction_10m,weather_code'
+    + '&daily=sunrise,sunset&timezone=auto';
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  return res.json();
+}
+
+function flyToPoi(poi) {
+  map.flyTo({ center: [poi.lng, poi.lat], zoom: PIN_ZOOM, speed: 1.2, curve: 1.42, essential: true });
+}
+
+// ---- glowing pulse on the beacons ----
+const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+function startBeaconPulse() {
+  if (reduceMotion) return;
+  let last = 0;
+  function step(now) {
+    if (now - last > 55) {                     // ~18 fps
+      last = now;
+      const s = (Math.sin(now / 700) + 1) / 2; // ~4.4 s cycle
+      map.setPaintProperty('beacon-base-col', 'fill-extrusion-opacity', 0.75 + 0.25 * s);
+      map.setPaintProperty('beacon-full-col', 'fill-extrusion-opacity', 0.35 + 0.20 * s);
+      map.setPaintProperty('beacon-halo-col', 'fill-extrusion-opacity', 0.09 + 0.07 * s);
+      map.setPaintProperty('beacon-pool', 'icon-opacity', 0.40 + 0.35 * s);
+    }
+    requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
+}
+
+// ---- build the map ----
+map.on('load', () => {
+  // 3D buildings
+  let labelLayerId;
+  for (const l of map.getStyle().layers) {
+    if (l.type === 'symbol' && l.layout && l.layout['text-field']) { labelLayerId = l.id; break; }
+  }
+  map.addLayer({
+    id: '3d-buildings', source: 'carto', 'source-layer': 'building', type: 'fill-extrusion', minzoom: 14,
+    paint: {
+      'fill-extrusion-color': ['interpolate', ['linear'],
+        ['coalesce', ['get', 'render_height'], ['get', 'height'], 10], 0, GREY_LO, 60, GREY_HI, 200, '#b3b7c0'],
+      'fill-extrusion-height': ['coalesce', ['get', 'render_height'], ['get', 'height'], 10],
+      'fill-extrusion-base': ['coalesce', ['get', 'render_min_height'], ['get', 'min_height'], 0],
+      'fill-extrusion-opacity': 0.9, 'fill-extrusion-vertical-gradient': true
+    }
+  }, labelLayerId);
+
+  // ---------- LONG THIN BEACONS (extrusion = real metres) ----------
+  map.addSource('beacon-core', {
+    type: 'geojson',
+    data: {
+      type: 'FeatureCollection',
+      features: POIS.map(p => ({
+        type: 'Feature',
+        properties: { h: beaconHeight(p) },
+        geometry: { type: 'Polygon', coordinates: [circleRing(p.lng, p.lat, CORE_R)] }
+      }))
+    }
+  });
+  map.addSource('beacon-halo', {
+    type: 'geojson',
+    data: {
+      type: 'FeatureCollection',
+      features: POIS.map(p => ({
+        type: 'Feature',
+        properties: { h: beaconHeight(p) },
+        geometry: { type: 'Polygon', coordinates: [circleRing(p.lng, p.lat, HALO_R)] }
+      }))
+    }
+  });
+
+  // faint full-length halo (very low opacity so its top edge isn't visible)
+  map.addLayer({
+    id: 'beacon-halo-col', type: 'fill-extrusion', source: 'beacon-halo', minzoom: 3,
+    paint: {
+      'fill-extrusion-color': BEAM_COLOR,
+      'fill-extrusion-height': ['get', 'h'],
+      'fill-extrusion-base': 0,
+      'fill-extrusion-opacity': 0.12,
+      'fill-extrusion-vertical-gradient': false
+    }
+  });
+  // full-length needle
+  map.addLayer({
+    id: 'beacon-full-col', type: 'fill-extrusion', source: 'beacon-core', minzoom: 3,
+    paint: {
+      'fill-extrusion-color': BEAM_CORE,
+      'fill-extrusion-height': ['get', 'h'],
+      'fill-extrusion-base': 0,
+      'fill-extrusion-opacity': 0.45,
+      'fill-extrusion-vertical-gradient': false
+    }
+  });
+  // brighter lower section (thin cap → no visible disc)
+  map.addLayer({
+    id: 'beacon-base-col', type: 'fill-extrusion', source: 'beacon-core', minzoom: 3,
+    paint: {
+      'fill-extrusion-color': BEAM_CORE,
+      'fill-extrusion-height': ['*', ['get', 'h'], BASE_FRAC],
+      'fill-extrusion-base': 0,
+      'fill-extrusion-opacity': 0.9,
+      'fill-extrusion-vertical-gradient': false
+    }
+  });
+
+  // ground glow pool
+  map.addImage('pool-glow', makePoolSprite());
+  map.addSource('beacon-points', {
+    type: 'geojson',
+    data: {
+      type: 'FeatureCollection',
+      features: POIS.map(p => ({ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: [p.lng, p.lat] } }))
+    }
+  });
+  map.addLayer({
+    id: 'beacon-pool', type: 'symbol', source: 'beacon-points', minzoom: 3,
+    layout: {
+      'icon-image': 'pool-glow',
+      'icon-size': ['interpolate', ['linear'], ['zoom'], 3, 0.15, 8, 0.35, 12, 0.7, 16, 1.1],
+      'icon-allow-overlap': true, 'icon-ignore-placement': true
+    },
+    paint: { 'icon-opacity': 0.6 }
+  });
+
+  startBeaconPulse();
+
+  // terrain
+  map.addSource('terrain', {
+    type: 'raster-dem',
+    url: 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png',
+    encoding: 'terrarium', tileSize: 256, maxzoom: 15
+  });
+  map.setTerrain({ source: 'terrain', exaggeration: 1.4 });
+  map.setSky({ 'sky-color': '#0b0e13', 'horizon-color': '#221b33', 'fog-color': PURPLE, 'fog-ground-blend': 0.7 });
+  applyTheme();
+
+  // ==================== ONE PIN PER OFFICE ====================
+  POIS.forEach(poi => {
+    const el = document.createElement('div');
+    el.className = 'poi-marker';
+    const pin = document.createElement('div');
+    pin.className = 'poi-pin';
+    pin.innerHTML = PIN_SVG;
+    el.appendChild(pin);
+
+    const popup = new maplibregl.Popup({ offset: 42, closeButton: false, maxWidth: '300px' })
+      .setHTML(popupHTML(poi, undefined));
+
+    new maplibregl.Marker({ element: el, anchor: 'bottom' })
+      .setLngLat([poi.lng, poi.lat])
+      .setPopup(popup)
+      .addTo(map);
+
+    el.addEventListener('click', () => flyToPoi(poi));
+
+    fetchWeather(poi)
+      .then(data => popup.setHTML(popupHTML(poi, data)))
+      .catch(() => popup.setHTML(popupHTML(poi, null)));
+  });
+
+  // ==================== FIT-ALL BUTTON ====================
+  document.getElementById('fit-btn').addEventListener('click', () => {
+    const b = new maplibregl.LngLatBounds();
+    POIS.forEach(p => b.extend([p.lng, p.lat]));
+    map.fitBounds(b, { padding: 90, maxZoom: 12, duration: 1200 });
+  });
+});
+</script>
+</body>
+</html>
