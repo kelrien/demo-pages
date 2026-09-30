@@ -1,121 +1,208 @@
-<script>
-    // ====== DRAG & DROP (event delegation — works for all cards, including new ones) ======
-    document.addEventListener('dragstart', (e) => {
-        const card = e.target.closest('.card');
-        if (!card) return;
-        if (card.classList.contains('editing')) { e.preventDefault(); return; }
-        card.classList.add('dragging');
-        e.dataTransfer.effectAllowed = 'move';
-        e.dataTransfer.setData('text/plain', card.id);
-    });
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Editable Kanban Board</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .kanban-container { max-width: 1200px; margin: 0 auto; }
+        h1 { text-align: center; color: white; margin-bottom: 8px; text-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .subtitle { text-align: center; color: rgba(255,255,255,0.85); margin-bottom: 24px; font-size: 14px; }
+        .lanes { display: flex; gap: 20px; overflow-x: auto; padding-bottom: 20px; }
+        .lane {
+            flex: 1; background: white; border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+            min-width: 280px; max-width: 350px;
+        }
+        .lane-header {
+            padding: 18px 20px; background: #f8f9fa; border-bottom: 2px solid #eee;
+            font-weight: 600; color: #555; border-radius: 12px 12px 0 0;
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .lane-count { background: #667eea; color: white; border-radius: 20px; padding: 4px 12px; font-size: 12px; }
+        .lane-board { min-height: 300px; padding: 15px; background: #fafafa; }
+        .lane-board.drag-over { background: #f0f4ff; outline: 2px dashed #667eea; outline-offset: -4px; }
+        .card {
+            background: white; padding: 14px 16px; margin-bottom: 12px; border-radius: 8px;
+            box-shadow: 0 1px 5px rgba(0,0,0,0.08); cursor: grab;
+            transition: all 0.2s ease; border-left: 4px solid #667eea; user-select: none;
+        }
+        .card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.12); }
+        .card.dragging { opacity: 0.4; }
+        .card.editing { cursor: default; border-left-color: #f0a500; }
+        .card-content { font-weight: 500; color: #333; font-size: 14px; word-wrap: break-word; }
+        .card-desc { font-size: 12px; color: #888; margin-top: 6px; }
+        .add-card {
+            padding: 12px; text-align: center; color: #667eea; cursor: pointer;
+            font-size: 14px; font-weight: 500; border-top: 1px solid #eee;
+        }
+        .add-card:hover { background: #f8f9fa; color: #5a6fd6; }
+        .edit-input {
+            width: 100%; padding: 8px; border: 1px solid #667eea; border-radius: 4px;
+            font-size: 14px; font-family: inherit; user-select: text;
+        }
+        .edit-input:focus { outline: none; box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2); }
+        .edit-buttons { display: flex; gap: 8px; margin-top: 8px; }
+        .save-btn, .cancel-btn {
+            border: none; padding: 6px 12px; border-radius: 4px;
+            cursor: pointer; font-size: 13px; font-family: inherit;
+        }
+        .save-btn { background: #667eea; color: white; }
+        .save-btn:hover { background: #5a6fd6; }
+        .cancel-btn { background: #e0e0e0; color: #555; }
+        .cancel-btn:hover { background: #d0d0d0; }
+    </style>
+</head>
+<body>
+    <div class="kanban-container">
+        <h1>📋 Editable Kanban Board</h1>
+        <p class="subtitle">Drag cards between lanes · Click a card to edit it</p>
+        <div class="lanes" id="lanes">
+            <div class="lane" data-lane="todo">
+                <div class="lane-header"><span>To Do</span><span class="lane-count">0</span></div>
+                <div class="lane-board" data-lane-board="todo"></div>
+                <div class="add-card" onclick="addCard(this)">+ Add Task</div>
+            </div>
+            <div class="lane" data-lane="inprogress">
+                <div class="lane-header"><span>In Progress</span><span class="lane-count">0</span></div>
+                <div class="lane-board" data-lane-board="inprogress"></div>
+                <div class="add-card" onclick="addCard(this)">+ Add Task</div>
+            </div>
+            <div class="lane" data-lane="done">
+                <div class="lane-header"><span>Done</span><span class="lane-count">0</span></div>
+                <div class="lane-board" data-lane-board="done"></div>
+                <div class="add-card" onclick="addCard(this)">+ Add Task</div>
+            </div>
+        </div>
+    </div>
 
-    document.addEventListener('dragend', (e) => {
-        const card = e.target.closest('.card');
-        if (card) card.classList.remove('dragging');
-        document.querySelectorAll('.lane-board.drag-over').forEach(b => b.classList.remove('drag-over'));
-    });
-
-    document.querySelectorAll('.lane-board').forEach(board => {
-        board.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            e.dataTransfer.dropEffect = 'move';
-            board.classList.add('drag-over');
+    <script>
+        // ====== DRAG & DROP (event delegation — works for all cards, including new ones) ======
+        document.addEventListener('dragstart', (e) => {
+            const card = e.target.closest('.card');
+            if (!card) return;
+            if (card.classList.contains('editing')) { e.preventDefault(); return; }
+            card.classList.add('dragging');
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', card.id);
         });
-        board.addEventListener('dragleave', (e) => {
-            if (!board.contains(e.relatedTarget)) board.classList.remove('drag-over');
+
+        document.addEventListener('dragend', (e) => {
+            const card = e.target.closest('.card');
+            if (card) card.classList.remove('dragging');
+            document.querySelectorAll('.lane-board.drag-over').forEach(b => b.classList.remove('drag-over'));
         });
-        board.addEventListener('drop', (e) => {
-            e.preventDefault();
-            board.classList.remove('drag-over');
-            const card = document.getElementById(e.dataTransfer.getData('text/plain'));
-            if (card) { board.appendChild(card); updateCounts(); }
+
+        document.querySelectorAll('.lane-board').forEach(board => {
+            board.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'move';
+                board.classList.add('drag-over');
+            });
+            board.addEventListener('dragleave', (e) => {
+                if (!board.contains(e.relatedTarget)) board.classList.remove('drag-over');
+            });
+            board.addEventListener('drop', (e) => {
+                e.preventDefault();
+                board.classList.remove('drag-over');
+                const card = document.getElementById(e.dataTransfer.getData('text/plain'));
+                if (card) { board.appendChild(card); updateCounts(); }
+            });
         });
-    });
 
-    // ====== CLICK TO EDIT (event delegation) ======
-    document.addEventListener('click', (e) => {
-        const card = e.target.closest('.card');
-        if (!card || card.classList.contains('editing')) return;
-        if (e.target.closest('.save-btn') || e.target.closest('.cancel-btn')) return;
-        const contentDiv = card.querySelector('.card-content');
-        if (!contentDiv) return;
+        // ====== CLICK TO EDIT (event delegation) ======
+        document.addEventListener('click', (e) => {
+            const card = e.target.closest('.card');
+            if (!card || card.classList.contains('editing')) return;
+            if (e.target.closest('.save-btn') || e.target.closest('.cancel-btn')) return;
+            const contentDiv = card.querySelector('.card-content');
+            if (!contentDiv) return;
 
-        const input = document.createElement('input');
-        input.type = 'text';
-        input.className = 'edit-input';
-        input.value = contentDiv.textContent;
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.className = 'edit-input';
+            input.value = contentDiv.textContent;
 
-        const buttons = document.createElement('div');
-        buttons.className = 'edit-buttons';
-        const saveBtn = document.createElement('button');
-        saveBtn.className = 'save-btn';
-        saveBtn.textContent = 'Save';
-        const cancelBtn = document.createElement('button');
-        cancelBtn.className = 'cancel-btn';
-        cancelBtn.textContent = 'Cancel';
-        buttons.append(saveBtn, cancelBtn);
+            const buttons = document.createElement('div');
+            buttons.className = 'edit-buttons';
+            const saveBtn = document.createElement('button');
+            saveBtn.className = 'save-btn';
+            saveBtn.textContent = 'Save';
+            const cancelBtn = document.createElement('button');
+            cancelBtn.className = 'cancel-btn';
+            cancelBtn.textContent = 'Cancel';
+            buttons.append(saveBtn, cancelBtn);
 
-        card.append(input, buttons);
-        contentDiv.remove();
-        card.classList.add('editing');
-        input.focus();
-        input.select();
+            card.append(input, buttons);
+            contentDiv.remove();
+            card.classList.add('editing');
+            input.focus();
+            input.select();
 
-        let finished = false, canceling = false;
-        cancelBtn.addEventListener('mousedown', () => { canceling = true; });
+            let finished = false, canceling = false;
+            cancelBtn.addEventListener('mousedown', () => { canceling = true; });
 
-        function finish(save) {
-            if (finished) return;
-            finished = true;
-            if (save && input.value.trim()) contentDiv.textContent = input.value.trim();
-            input.remove();
-            buttons.remove();
-            card.prepend(contentDiv);
-            card.classList.remove('editing');
+            function finish(save) {
+                if (finished) return;
+                finished = true;
+                if (save && input.value.trim()) contentDiv.textContent = input.value.trim();
+                input.remove();
+                buttons.remove();
+                card.prepend(contentDiv);
+                card.classList.remove('editing');
+                updateCounts();
+            }
+
+            saveBtn.addEventListener('click', () => finish(true));
+            cancelBtn.addEventListener('click', () => finish(false));
+            input.addEventListener('keydown', (ev) => {
+                if (ev.key === 'Enter') finish(true);
+                if (ev.key === 'Escape') finish(false);
+            });
+            input.addEventListener('blur', () => finish(!canceling));
+        });
+
+        // ====== CARD MANAGEMENT ======
+        function updateCounts() {
+            document.querySelectorAll('.lane').forEach(lane => {
+                const board = lane.querySelector('.lane-board');
+                lane.querySelector('.lane-count').textContent = board.querySelectorAll('.card').length;
+            });
+        }
+
+        function addCard(btn) {
+            const lane = btn.closest('.lane').dataset.lane;
+            createCard('card-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5), 'New Task', lane);
             updateCounts();
         }
 
-        saveBtn.addEventListener('click', () => finish(true));
-        cancelBtn.addEventListener('click', () => finish(false));
-        input.addEventListener('keydown', (ev) => {
-            if (ev.key === 'Enter') finish(true);
-            if (ev.key === 'Escape') finish(false);
-        });
-        input.addEventListener('blur', () => finish(!canceling));
-    });
+        function createCard(id, title, lane) {
+            const card = document.createElement('div');
+            card.className = 'card';
+            card.id = id;
+            card.draggable = true;
+            const contentDiv = document.createElement('div');
+            contentDiv.className = 'card-content';
+            contentDiv.textContent = title;
+            const desc = document.createElement('div');
+            desc.className = 'card-desc';
+            desc.textContent = 'Click to edit';
+            card.append(contentDiv, desc);
+            document.querySelector('[data-lane-board="' + lane + '"]').appendChild(card);
+        }
 
-    // ====== CARD MANAGEMENT ======
-    function updateCounts() {
-        document.querySelectorAll('.lane').forEach(lane => {
-            const board = lane.querySelector('.lane-board');
-            lane.querySelector('.lane-count').textContent = board.querySelectorAll('.card').length;
-        });
-    }
-
-    function addCard(btn) {
-        const lane = btn.closest('.lane').dataset.lane;
-        createCard('card-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5), 'New Task', lane);
+        // ====== INITIALIZE ======
+        createCard('card-1', 'Design landing page mockups', 'todo');
+        createCard('card-2', 'Write API documentation', 'todo');
+        createCard('card-3', 'Review team PRs', 'todo');
         updateCounts();
-    }
-
-    function createCard(id, title, lane) {
-        const card = document.createElement('div');
-        card.className = 'card';
-        card.id = id;
-        card.draggable = true;
-        const contentDiv = document.createElement('div');
-        contentDiv.className = 'card-content';
-        contentDiv.textContent = title;
-        const desc = document.createElement('div');
-        desc.className = 'card-desc';
-        desc.textContent = 'Click to edit';
-        card.append(contentDiv, desc);
-        document.querySelector('[data-lane-board="' + lane + '"]').appendChild(card);
-    }
-
-    // ====== INITIALIZE ======
-    createCard('card-1', 'Design landing page mockups', 'todo');
-    createCard('card-2', 'Write API documentation', 'todo');
-    createCard('card-3', 'Review team PRs', 'todo');
-    updateCounts();
-</script>
+    </script>
+</body>
+</html>
