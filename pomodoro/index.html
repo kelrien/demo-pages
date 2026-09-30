@@ -1,0 +1,809 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="color-scheme" content="dark" />
+<title>Pomodoro · Focus Timer</title>
+<style>
+  * { box-sizing: border-box; margin: 0; drift: 0; }
+  :root {
+    --bg: #0b0e14;
+    --card: #12161f;
+    --card-2: #171c27;
+    --well: #0d1119;
+    --text: #e8ecf3;
+    --muted: #8b93a7;
+    --line: #242b3a;
+    --line-hi: #33405a;
+    --radius: 16px;
+  }
+  body[data-mode="focus"] { --accent: #ff7a70; --glow: rgba(255,122,112,.16); --soft: rgba(255,122,112,.13); }
+  body[data-mode="short"] { --accent: #2fd6c3; --glow: rgba(47,214,195,.16);  --soft: rgba(47,214,195,.13); }
+  body[data-mode="long"]  { --accent: #8b96ff; --glow: rgba(139,150,255,.16); --soft: rgba(139,150,255,.13); }
+
+  html { font-size: 16px; }
+  body {
+    min-height: 100vh;
+    background:
+      radial-gradient(900px 520px at 85% -10%, var(--glow), transparent 60%),
+      radial-gradient(700px 520px at -10% 110%, var(--glow), transparent 55%),
+      var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", "Helvetica Neue", Arial, sans-serif;
+    display: flex;
+    justify-content: center;
+    padding: 34px 16px 60px;
+  }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+
+  .app { width: 100%; max-width: 1020px; }
+
+  /* ---------- header ---------- */
+  header {
+    display: flex; align-items: flex-end; justify-content: space-between;
+    gap: 12px; flex-wrap: wrap; margin-bottom: 22px;
+  }
+  h1 { font-size: 1.5rem; letter-spacing: .2px; }
+  h1 .tomato { margin-right: 8px; }
+  .tagline { color: var(--muted); font-size: .88rem; margin-top: 5px; }
+  .stat-chip {
+    background: var(--card); border: 1px solid var(--line);
+    padding: 8px 14px; border-radius: 999px;
+    color: var(--muted); font-size: .85rem; white-space: nowrap;
+  }
+  .stat-chip b { color: var(--text); font-variant-numeric: tabular-nums; }
+
+  /* ---------- layout / cards ---------- */
+  .layout { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 20px; align-items: start; }
+  @media (max-width: 860px) { .layout { grid-template-columns: 1fr; } }
+  .card {
+    background: linear-gradient(180deg, var(--card-2), var(--card));
+    border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 24px; box-shadow: 0 10px 40px rgba(0,0,0,.35);
+  }
+  @media (max-width: 520px) { .card { padding: 18px; } }
+
+  /* ---------- timer card ---------- */
+  .timer-card { position: relative; overflow: hidden; }
+  .timer-card::before {
+    content: ""; position: absolute; inset: 0; pointer-events: none;
+    background: radial-gradient(420px 220px at 50% 0%, var(--glow), transparent 70%);
+  }
+  .timer-card.celebrate { animation: pop .6s ease; }
+  @keyframes pop { 0% { transform: scale(1); } 40% { transform: scale(1.025); } 100% { transform: scale(1); } }
+
+  .mode-tabs {
+    display: flex; gap: 4px; padding: 4px;
+    background: var(--well); border: 1px solid var(--line); border-radius: 999px;
+    position: relative; z-index: 1;
+  }
+  .mode-tabs button {
+    flex: 1; padding: 8px 6px; border: 0; background: transparent;
+    color: var(--muted); font: inherit; font-size: .84rem; font-weight: 600;
+    border-radius: 999px; cursor: pointer;
+    transition: color .25s ease, background .25s ease;
+  }
+  .mode-tabs button:hover { color: var(--text); }
+  .mode-tabs button.active { background: var(--soft); color: var(--accent); }
+
+  .ring-wrap { position: relative; width: min(300px, 72vw); margin: 28px auto 8px; }
+  .ring-wrap.swap { animation: fadeSwap .45s ease; }
+  @keyframes fadeSwap { from { opacity: 0; transform: scale(.965); } to { opacity: 1; transform: scale(1); } }
+  svg.ring { width: 100%; height: auto; display: block; }
+  .ring-track { fill: none; stroke: var(--line); stroke-width: 10; }
+  .ring-progress {
+    fill: none; stroke: var(--accent); stroke-width: 10; stroke-linecap: round;
+    transform: rotate(-90deg); transform-origin: 50% 50%;
+    transition: stroke-dashoffset .3s linear, stroke .5s ease;
+  }
+  .time-box {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px;
+  }
+  .time-display {
+    font-size: clamp(2.6rem, 10vw, 3.6rem); font-weight: 700; letter-spacing: 1px;
+    font-variant-numeric: tabular-nums;
+    transition: text-shadow .5s ease;
+  }
+  body.running .time-display { text-shadow: 0 0 26px var(--glow); }
+  .mode-name {
+    color: var(--muted); font-size: .78rem;
+    text-transform: uppercase; letter-spacing: 2px;
+  }
+  body.running .mode-name::after {
+    content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+    background: var(--accent); margin-left: 9px; vertical-align: middle;
+    animation: pulse 1.6s ease infinite;
+  }
+  @keyframes pulse { 0%,100% { opacity: .35; transform: scale(.9); } 50% { opacity: 1; transform: scale(1.2); } }
+
+  .dots { display: flex; justify-content: center; gap: 8px; margin: 14px 0 6px; position: relative; z-index: 1; }
+  .dot {
+    width: 9px; height: 9px; border-radius: 50%; background: var(--line);
+    transition: background .4s ease, transform .4s ease, box-shadow .4s ease;
+  }
+  .dot.on { background: var(--accent); box-shadow: 0 0 8px var(--glow); transform: scale(1.15); }
+
+  .linked {
+    display: flex; align-items: center; gap: 9px; justify-content: center;
+    margin: 10px auto 4px; min-height: 36px; padding: 6px 12px;
+    border-radius: 10px; background: var(--soft);
+    font-size: .85rem; position: relative; z-index: 1;
+    transition: background .3s ease;
+  }
+  .linked.empty { background: transparent; border: 1px dashed var(--line); color: var(--muted); }
+  .linked .label { color: var(--muted); font-size: .72rem; text-transform: uppercase; letter-spacing: 1px; white-space: nowrap; }
+  .linked .name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 230px; }
+  .linked .clear {
+    border: 0; background: transparent; color: var(--muted); cursor: pointer;
+    font-size: .85rem; line-height: 1; padding: 4px 6px; border-radius: 6px; flex: none;
+    transition: background .2s ease, color .2s ease;
+  }
+  .linked .clear:hover { color: var(--text); background: rgba(255,255,255,.08); }
+
+  .controls { display: flex; align-items: center; justify-content: center; gap: 14px; margin-top: 18px; position: relative; z-index: 1; }
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    border: 1px solid var(--line); background: var(--card-2); color: var(--text);
+    border-radius: 12px; padding: 11px 16px; font: inherit; font-weight: 600; cursor: pointer;
+    transition: transform .15s ease, background .25s ease, border-color .25s ease, box-shadow .4s ease, filter .2s ease;
+  }
+  .btn:hover { border-color: var(--line-hi); background: #1c2331; }
+  .btn:active { transform: scale(.97); }
+  .btn svg { width: 18px; height: 18px; flex: none; }
+  .btn.icon { padding: 11px; border-radius: 50%; }
+  .btn.primary {
+    background: var(--accent); border-color: transparent; color: #10131a;
+    padding: 14px 32px; font-size: 1rem; border-radius: 999px;
+    box-shadow: 0 6px 24px var(--glow);
+  }
+  .btn.primary:hover { background: var(--accent); border-color: transparent; filter: brightness(1.09); }
+  #startIcon svg { width: 20px; height: 20px; }
+
+  .sound-row {
+    display: flex; align-items: center; justify-content: center; gap: 9px;
+    margin-top: 18px; color: var(--muted); font-size: .8rem; position: relative; z-index: 1;
+  }
+  .kbd-hint { opacity: .75; }
+  kbd {
+    background: var(--well); border: 1px solid var(--line); border-bottom-width: 2px;
+    border-radius: 5px; padding: 1px 6px; font-family: inherit; font-size: .72rem;
+  }
+  .switch { position: relative; width: 36px; height: 20px; flex: none; }
+  .switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+  .switch .slider {
+    position: absolute; inset: 0; background: var(--line); border-radius: 999px;
+    cursor: pointer; transition: background .25s ease;
+  }
+  .switch .slider::before {
+    content: ""; position: absolute; width: 14px; height: 14px; border-radius: 50%;
+    background: #fff; top: 3px; left: 3px; transition: transform .25s ease;
+  }
+  .switch input:checked + .slider { background: var(--accent); }
+  .switch input:checked + .slider::before { transform: translateX(16px); }
+
+  /* ---------- tasks card ---------- */
+  .tasks-card h2 {
+    font-size: 1.05rem; margin-bottom: 14px;
+    display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+  }
+  .tasks-card h2 .hint { font-size: .72rem; font-weight: 400; color: var(--muted); }
+  .task-form { display: flex; gap: 8px; margin-bottom: 14px; }
+  .task-form input {
+    flex: 1; min-width: 0; background: var(--well); border: 1px solid var(--line);
+    color: var(--text); border-radius: 10px; padding: 11px 14px; font: inherit; outline: none;
+    transition: border-color .2s ease, box-shadow .2s ease;
+  }
+  .task-form input::placeholder { color: #5c6579; }
+  .task-form input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--soft); }
+  .task-form .btn { padding: 10px 13px; border-radius: 10px; }
+  .task-form .btn svg { width: 16px; height: 16px; }
+
+  .task-list {
+    list-style: none; display: flex; flex-direction: column; gap: 8px;
+    max-height: 380px; overflow-y: auto; padding-right: 4px;
+  }
+  .task-list::-webkit-scrollbar { width: 8px; }
+  .task-list::-webkit-scrollbar-thumb { background: var(--line); border-radius: 4px; }
+  .task-list::-webkit-scrollbar-track { background: transparent; }
+
+  .task {
+    display: flex; align-items: center; gap: 10px;
+    background: var(--well); border: 1px solid var(--line); border-radius: 12px;
+    padding: 10px 12px;
+    transition: border-color .25s ease, background .25s ease, opacity .3s ease, transform .3s ease;
+  }
+  .task:hover { border-color: var(--line-hi); }
+  .task.enter { opacity: 0; transform: translateY(-8px); }
+  .task.exit { opacity: 0; transform: translateX(14px); }
+  .task.active { border-color: var(--accent); background: linear-gradient(90deg, var(--soft), var(--well) 60%); }
+
+  .check {
+    flex: none; width: 22px; height: 22px; border-radius: 50%;
+    border: 2px solid #3a4356; background: transparent; color: #10131a; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; padding: 0;
+    transition: border-color .25s ease, background .25s ease;
+  }
+  .check:hover { border-color: var(--accent); }
+  .check svg { width: 13px; height: 13px; opacity: 0; transform: scale(.5); transition: opacity .2s ease, transform .2s ease; }
+  .task.done .check { background: var(--accent); border-color: var(--accent); }
+  .task.done .check svg { opacity: 1; transform: scale(1); }
+
+  .task-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+  .task-title { font-size: .95rem; word-break: break-word; position: relative; transition: color .3s ease; }
+  .task-title::after {
+    content: ""; position: absolute; left: 0; top: 55%; height: 2px; width: 0;
+    background: var(--accent); border-radius: 2px; transition: width .35s ease;
+  }
+  .task.done .task-title { color: var(--muted); }
+  .task.done .task-title::after { width: 100%; }
+  .task-meta { display: flex; gap: 8px; align-items: center; font-size: .72rem; color: var(--muted); }
+  .badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    background: var(--soft); color: var(--accent);
+    padding: 2px 8px; border-radius: 999px; font-weight: 600; font-size: .7rem;
+    font-variant-numeric: tabular-nums;
+  }
+  .tag-active { color: var(--accent); font-weight: 600; }
+
+  .icon-btn {
+    flex: none; width: 30px; height: 30px; border-radius: 8px; border: 0;
+    background: transparent; color: var(--muted); cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0; transition: opacity .2s ease, background .2s ease, color .2s ease;
+  }
+  .icon-btn svg { width: 16px; height: 16px; }
+  .task:hover .icon-btn, .icon-btn:focus-visible { opacity: 1; }
+  .icon-btn:hover { background: rgba(255,255,255,.08); color: var(--text); }
+  .task.active .target-btn { opacity: 1; color: var(--accent); background: var(--soft); }
+  @media (hover: none) { .icon-btn { opacity: .65; } }
+
+  .empty {
+    text-align: center; color: var(--muted); font-size: .88rem;
+    padding: 26px 12px; border: 1px dashed var(--line); border-radius: 12px;
+  }
+  .tasks-foot {
+    display: flex; justify-content: space-between; align-items: center; gap: 10px;
+    margin-top: 14px; color: var(--muted); font-size: .8rem;
+  }
+  .text-btn {
+    border: 0; background: none; color: var(--muted); font: inherit; font-size: .8rem;
+    cursor: pointer; text-decoration: underline; text-underline-offset: 3px;
+    transition: color .2s ease;
+  }
+  .text-btn:hover { color: var(--text); }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+  }
+</style>
+</head>
+<body data-mode="focus">
+<div class="app">
+  <header>
+    <div>
+      <h1><span class="tomato">🍅</span>Pomodoro</h1>
+      <p class="tagline">Focus timer &amp; task tracker — your data stays in this browser.</p>
+    </div>
+    <div class="stat-chip" id="totalPomos" title="Completed focus sessions">🍅 <b>0</b> focus sessions</div>
+  </header>
+
+  <main class="layout">
+    <!-- ================= TIMER ================= -->
+    <section class="card timer-card" id="timerCard" aria-label="Pomodoro timer">
+      <div class="mode-tabs" id="modeTabs">
+        <button type="button" data-mode="focus">Focus</button>
+        <button type="button" data-mode="short">Short Break</button>
+        <button type="button" data-mode="long">Long Break</button>
+      </div>
+
+      <div class="ring-wrap" id="ringBox">
+        <svg class="ring" viewBox="0 0 280 280" aria-hidden="true">
+          <circle class="ring-track" cx="140" cy="140" r="126"></circle>
+          <circle class="ring-progress" id="ringProgress" cx="140" cy="140" r="126"></circle>
+        </svg>
+        <div class="time-box">
+          <div class="time-display" id="timeDisplay" role="timer">25:00</div>
+          <div class="mode-name" id="modeName">Focus</div>
+        </div>
+      </div>
+
+      <div class="dots" id="dots" aria-hidden="true"></div>
+
+      <div class="linked empty" id="linkedBox" aria-live="polite"></div>
+
+      <div class="controls">
+        <button class="btn icon" id="resetBtn" type="button" title="Reset timer" aria-label="Reset timer">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
+        </button>
+        <button class="btn primary" id="startBtn" type="button" aria-label="Start or pause timer">
+          <span id="startIcon"></span><span id="startLabel">Start</span>
+        </button>
+        <button class="btn icon" id="skipBtn" type="button" title="Skip to next session" aria-label="Skip to next session">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 4 15 12 5 20 5 4"></polygon><line x1="19" y1="5" x2="19" y2="19"></line></svg>
+        </button>
+      </div>
+
+      <div class="sound-row">
+        <span>Sound</span>
+        <label class="switch">
+          <input type="checkbox" id="soundToggle" checked aria-label="Timer completion sound" />
+          <span class="slider"></span>
+        </label>
+        <span class="kbd-hint"><kbd>Space</kbd> start / pause</span>
+      </div>
+    </section>
+
+    <!-- ================= TASKS ================= -->
+    <section class="card tasks-card" aria-label="Task manager">
+      <h2>Tasks <span class="hint">use ◎ on a task to track its pomodoros</span></h2>
+      <form class="task-form" id="taskForm" autocomplete="off">
+        <input type="text" id="taskInput" placeholder="Add a task and press Enter…" maxlength="200" aria-label="New task" />
+        <button type="submit" class="btn" aria-label="Add task">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+        </button>
+      </form>
+      <ul class="task-list" id="taskList" aria-label="Task list"></ul>
+      <div class="empty" id="taskEmpty" hidden>No tasks yet — add one above, then link it to the timer with ◎.</div>
+      <div class="tasks-foot">
+        <span id="taskStats">No tasks yet</span>
+        <button class="text-btn" id="clearDone" type="button">Clear completed</button>
+      </div>
+    </section>
+  </main>
+</div>
+
+<noscript><p style="text-align:center;color:#8b93a7">This app requires JavaScript.</p></noscript>
+
+<script>
+(() => {
+  'use strict';
+  const $ = (s, r = document) => r.querySelector(s);
+
+  /* ---------------- constants ---------------- */
+  const DURATIONS = { focus: 25 * 60, short: 5 * 60, long: 15 * 60 };
+  const LABELS = { focus: 'Focus', short: 'Short Break', long: 'Long Break' };
+  const LS_TASKS = 'pomo.tasks.v1';
+  const LS_STATE = 'pomo.state.v1';
+
+  const ICONS = {
+    play:  '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>',
+    pause: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>',
+    check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>',
+    x:     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
+    target:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="1.5" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22.5"/><line x1="1.5" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22.5" y2="12"/></svg>'
+  };
+  const icon = n => ICONS[n] || '';
+
+  /* ---------------- state ---------------- */
+  const state = {
+    mode: 'focus',
+    remaining: DURATIONS.focus,
+    running: false,
+    totalFocus: 0,
+    cycleCount: 0,          // focus sessions in current cycle (0–4)
+    sound: true,
+    activeTaskId: null
+  };
+  let tasks = [];
+  let endTime = null;
+  let ticker = null;
+
+  const els = {
+    body: document.body,
+    time: $('#timeDisplay'),
+    modeName: $('#modeName'),
+    ring: $('#ringProgress'),
+    ringBox: $('#ringBox'),
+    startBtn: $('#startBtn'),
+    startIcon: $('#startIcon'),
+    startLabel: $('#startLabel'),
+    resetBtn: $('#resetBtn'),
+    skipBtn: $('#skipBtn'),
+    tabs: $('#modeTabs'),
+    dots: $('#dots'),
+    linked: $('#linkedBox'),
+    sound: $('#soundToggle'),
+    taskForm: $('#taskForm'),
+    taskInput: $('#taskInput'),
+    taskList: $('#taskList'),
+    taskEmpty: $('#taskEmpty'),
+    taskStats: $('#taskStats'),
+    clearDone: $('#clearDone'),
+    statChip: $('#totalPomos'),
+    timerCard: $('#timerCard')
+  };
+
+  const CIRC = 2 * Math.PI * 126;
+  els.ring.style.strokeDasharray = CIRC;
+
+  /* ---------------- helpers ---------------- */
+  const fmt = s => Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+  const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  /* ---------------- persistence ---------------- */
+  function save() {
+    try {
+      localStorage.setItem(LS_TASKS, JSON.stringify(tasks));
+      localStorage.setItem(LS_STATE, JSON.stringify({
+        mode: state.mode,
+        remaining: state.remaining,
+        totalFocus: state.totalFocus,
+        cycleCount: state.cycleCount,
+        sound: state.sound,
+        activeTaskId: state.activeTaskId
+      }));
+    } catch (e) { /* storage unavailable */ }
+  }
+
+  function load() {
+    try {
+      const t = JSON.parse(localStorage.getItem(LS_TASKS) || '[]');
+      if (Array.isArray(t)) {
+        tasks = t
+          .filter(x => x && typeof x.title === 'string' && x.title.trim())
+          .map(x => ({
+            id: String(x.id || uid()),
+            title: x.title,
+            done: !!x.done,
+            pomodoros: Math.max(0, parseInt(x.pomodoros, 10) || 0)
+          }));
+      }
+      const s = JSON.parse(localStorage.getItem(LS_STATE) || 'null');
+      if (s && typeof s === 'object') {
+        if (s.mode in DURATIONS) state.mode = s.mode;
+        const r = parseInt(s.remaining, 10);
+        state.remaining = (isNaN(r) || r <= 0) ? DURATIONS[state.mode] : Math.min(r, DURATIONS[state.mode]);
+        state.totalFocus = Math.max(0, parseInt(s.totalFocus, 10) || 0);
+        state.cycleCount = Math.max(0, parseInt(s.cycleCount, 10) || 0) % 4;
+        state.sound = s.sound !== false;
+        state.activeTaskId = typeof s.activeTaskId === 'string' ? s.activeTaskId : null;
+      }
+    } catch (e) { /* corrupted state -> defaults */ }
+    const active = tasks.find(t => t.id === state.activeTaskId);
+    if (!active || active.done) state.activeTaskId = null;
+  }
+
+  /* ---------------- timer engine ---------------- */
+  function tick() {
+    const rem = Math.max(0, Math.round((endTime - Date.now()) / 1000));
+    if (rem !== state.remaining) {
+      state.remaining = rem;
+      renderTimer();
+      save();
+    }
+    if (rem <= 0) complete();
+  }
+
+  function start() {
+    if (state.running || state.remaining <= 0) return;
+    state.running = true;
+    endTime = Date.now() + state.remaining * 1000;
+    ticker = setInterval(tick, 250);
+    els.body.classList.add('running');
+    renderTimer();
+    save();
+  }
+
+  function pause() {
+    if (!state.running) return;
+    state.running = false;
+    clearInterval(ticker); ticker = null;
+    state.remaining = Math.max(0, Math.round((endTime - Date.now()) / 1000));
+    els.body.classList.remove('running');
+    renderTimer();
+    save();
+  }
+
+  function toggle() { state.running ? pause() : start(); }
+
+  function resetTimer() {
+    if (state.running) { clearInterval(ticker); ticker = null; els.body.classList.remove('running'); }
+    state.running = false;
+    state.remaining = DURATIONS[state.mode];
+    swapAnim();
+    renderTimer();
+    save();
+  }
+
+  function switchMode(mode) {
+    if (state.running) { clearInterval(ticker); ticker = null; els.body.classList.remove('running'); }
+    state.running = false;
+    state.mode = mode;
+    state.remaining = DURATIONS[mode];
+    swapAnim();
+    renderAll();
+    save();
+  }
+
+  function complete() {
+    clearInterval(ticker); ticker = null;
+    state.running = false;
+    state.remaining = 0;
+    els.body.classList.remove('running');
+    chime();
+    celebrate();
+    advance(state.mode, true);
+  }
+
+  // Advance to the next session. credit=true means a full focus session finished.
+  function advance(fromMode, credit) {
+    if (fromMode === 'focus') {
+      if (credit) {
+        state.totalFocus += 1;
+        state.cycleCount += 1;
+        creditTask();
+      }
+      const willBe = credit ? state.cycleCount : state.cycleCount + 1;
+      state.mode = (willBe % 4 === 0) ? 'long' : 'short';
+    } else {
+      if (fromMode === 'long') state.cycleCount = 0;
+      state.mode = 'focus';
+    }
+    state.remaining = DURATIONS[state.mode];
+    state.running = false;
+    els.body.classList.remove('running');
+    swapAnim();
+    renderAll();
+    save();
+  }
+
+  function skip() {
+    if (state.running) { clearInterval(ticker); ticker = null; els.body.classList.remove('running'); }
+    advance(state.mode, false);
+  }
+
+  function creditTask() {
+    if (!state.activeTaskId) return;
+    const t = tasks.find(x => x.id === state.activeTaskId);
+    if (t) { t.pomodoros += 1; renderTasks(); }
+  }
+
+  /* ---------------- audio ---------------- */
+  function chime() {
+    if (!state.sound) return;
+    try {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return;
+      const ctx = new Ctx();
+      const now = ctx.currentTime;
+      [523.25, 659.25, 783.99].forEach((f, i) => {
+        const o = ctx.createOscillator();
+        const g = ctx.createGain();
+        o.type = 'sine';
+        o.frequency.value = f;
+        const t0 = now + i * 0.16;
+        g.gain.setValueAtTime(0.0001, t0);
+        g.gain.exponentialRampToValueAtTime(0.18, t0 + 0.03);
+        g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.6);
+        o.connect(g); g.connect(ctx.destination);
+        o.start(t0); o.stop(t0 + 0.65);
+      });
+      setTimeout(() => { try { ctx.close(); } catch (e) {} }, 1600);
+    } catch (e) { /* audio unavailable */ }
+  }
+
+  /* ---------------- rendering ---------------- */
+  function renderTimer() {
+    const t = state.remaining;
+    const total = DURATIONS[state.mode];
+    els.time.textContent = fmt(t);
+    els.modeName.textContent = LABELS[state.mode];
+    els.ring.style.strokeDashoffset = CIRC * (1 - (t / total));
+    document.title = fmt(t) + ' · ' + LABELS[state.mode] + ' — Pomodoro';
+    els.startIcon.innerHTML = icon(state.running ? 'pause' : 'play');
+    els.startLabel.textContent = state.running ? 'Pause' : (t < total ? 'Resume' : 'Start');
+    els.body.dataset.mode = state.mode;
+    els.tabs.querySelectorAll('button').forEach(b => b.classList.toggle('active', b.dataset.mode === state.mode));
+    renderDots();
+  }
+
+  function renderDots() {
+    let d = state.cycleCount % 4;
+    if (state.mode === 'long' && d === 0 && state.totalFocus > 0) d = 4;
+    els.dots.querySelectorAll('.dot').forEach((el, i) => el.classList.toggle('on', i < d));
+  }
+
+  function renderLinked() {
+    const t = tasks.find(x => x.id === state.activeTaskId);
+    if (t) {
+      els.linked.classList.remove('empty');
+      els.linked.innerHTML =
+        '<span class="label">Focusing on</span>' +
+        '<span class="name" title="' + esc(t.title) + '">' + esc(t.title) + '</span>' +
+        '<button class="clear" type="button" aria-label="Unlink task">✕</button>';
+      els.linked.querySelector('.clear').addEventListener('click', () => {
+        state.activeTaskId = null;
+        renderLinked(); renderTasks(); save();
+      });
+    } else {
+      els.linked.classList.add('empty');
+      els.linked.innerHTML =
+        '<span class="label">No task linked</span>' +
+        '<span class="name" style="color:var(--muted);font-weight:400">— pick one with ◎ to track its pomodoros</span>';
+    }
+  }
+
+  function buildDots() {
+    for (let i = 0; i < 4; i++) {
+      const d = document.createElement('span');
+      d.className = 'dot';
+      els.dots.appendChild(d);
+    }
+  }
+
+  function swapAnim() {
+    els.ringBox.classList.remove('swap');
+    void els.ringBox.offsetWidth;
+    els.ringBox.classList.add('swap');
+  }
+
+  function celebrate() {
+    els.timerCard.classList.remove('celebrate');
+    void els.timerCard.offsetWidth;
+    els.timerCard.classList.add('celebrate');
+    setTimeout(() => els.timerCard.classList.remove('celebrate'), 700);
+  }
+
+  /* ---------------- tasks ---------------- */
+  function addTask(raw) {
+    const title = raw.trim();
+    if (!title) return;
+    tasks.push({ id: uid(), title: title.slice(0, 200), done: false, pomodoros: 0 });
+    renderTasks();
+    save();
+  }
+
+  function toggleTask(id) {
+    const t = tasks.find(x => x.id === id);
+    if (!t) return;
+    t.done = !t.done;
+    if (t.done && state.activeTaskId === id) state.activeTaskId = null;
+    renderTasks();
+    renderLinked();
+    save();
+  }
+
+  function deleteTask(id) {
+    const li = els.taskList.querySelector('.task[data-id="' + id + '"]');
+    tasks = tasks.filter(x => x.id !== id);
+    if (state.activeTaskId === id) state.activeTaskId = null;
+    if (li) {
+      li.classList.add('exit');
+      setTimeout(() => { li.remove(); syncEmpty(); }, 300);
+    }
+    renderLinked();
+    renderStats();
+    save();
+  }
+
+  function setActive(id) {
+    state.activeTaskId = (state.activeTaskId === id) ? null : id;
+    renderTasks();
+    renderLinked();
+    save();
+  }
+
+  function createTaskEl(t) {
+    const li = document.createElement('li');
+    li.className = 'task' + (t.done ? ' done' : '') + (t.id === state.activeTaskId ? ' active' : '');
+    li.dataset.id = t.id;
+    li.innerHTML =
+      '<button class="check" type="button" aria-label="Toggle task complete">' + icon('check') + '</button>' +
+      '<div class="task-body">' +
+        '<span class="task-title">' + esc(t.title) + '</span>' +
+        '<div class="task-meta">' +
+          '<span class="badge" hidden>🍅 <span class="pomo-n">0</span></span>' +
+          '<span class="tag-active" hidden>in focus</span>' +
+        '</div>' +
+      '</div>' +
+      '<button class="icon-btn target-btn" type="button" title="Link to timer session" aria-label="Link task to timer">' + icon('target') + '</button>' +
+      '<button class="icon-btn delete-btn" type="button" title="Delete task" aria-label="Delete task">' + icon('x') + '</button>';
+    li.querySelector('.check').addEventListener('click', () => toggleTask(t.id));
+    li.querySelector('.target-btn').addEventListener('click', () => setActive(t.id));
+    li.querySelector('.delete-btn').addEventListener('click', () => deleteTask(t.id));
+    return li;
+  }
+
+  function syncTaskEl(li, t) {
+    li.classList.toggle('done', t.done);
+    li.classList.toggle('active', t.id === state.activeTaskId);
+    const titleEl = li.querySelector('.task-title');
+    if (titleEl.textContent !== t.title) titleEl.textContent = t.title;
+    const badge = li.querySelector('.badge');
+    const n = li.querySelector('.pomo-n');
+    n.textContent = t.pomodoros;
+    badge.hidden = t.pomodoros <= 0;
+    li.querySelector('.tag-active').hidden = t.id !== state.activeTaskId;
+  }
+
+  function renderTasks() {
+    const ul = els.taskList;
+    const existing = new Map();
+    ul.querySelectorAll('li.task').forEach(li => existing.set(li.dataset.id, li));
+    const seen = new Set();
+    tasks.forEach(t => {
+      seen.add(t.id);
+      let li = existing.get(t.id);
+      if (!li) {
+        li = createTaskEl(t);
+        li.classList.add('enter');
+        ul.appendChild(li);
+        requestAnimationFrame(() => requestAnimationFrame(() => li.classList.remove('enter')));
+      } else {
+        syncTaskEl(li, t);
+      }
+    });
+    existing.forEach((li, id) => {
+      if (!seen.has(id) && !li.classList.contains('exit')) {
+        li.classList.add('exit');
+        setTimeout(() => li.remove(), 300);
+      }
+    });
+    syncEmpty();
+    renderStats();
+  }
+
+  function syncEmpty() {
+    els.taskEmpty.hidden = tasks.length > 0 || els.taskList.querySelectorAll('li.task').length > 0;
+  }
+
+  function renderStats() {
+    const done = tasks.filter(t => t.done).length;
+    const pomos = tasks.reduce((a, t) => a + t.pomodoros, 0);
+    els.taskStats.textContent = tasks.length ? done + ' of ' + tasks.length + ' done · 🍅 ' + pomos : 'No tasks yet';
+    els.statChip.innerHTML = '🍅 <b>' + state.totalFocus + '</b> focus sessions';
+  }
+
+  function renderAll() {
+    renderTimer();
+    renderLinked();
+    renderTasks();
+  }
+
+  /* ---------------- events ---------------- */
+  els.startBtn.addEventListener('click', toggle);
+  els.resetBtn.addEventListener('click', resetTimer);
+  els.skipBtn.addEventListener('click', skip);
+
+  els.tabs.addEventListener('click', e => {
+    const b = e.target.closest('button[data-mode]');
+    if (!b || b.dataset.mode === state.mode) return;
+    switchMode(b.dataset.mode);
+  });
+
+  els.sound.addEventListener('change', () => { state.sound = els.sound.checked; save(); });
+
+  els.taskForm.addEventListener('submit', e => {
+    e.preventDefault();
+    addTask(els.taskInput.value);
+    els.taskInput.value = '';
+    els.taskInput.focus();
+  });
+
+  els.clearDone.addEventListener('click', () => {
+    tasks = tasks.filter(t => !t.done);
+    if (state.activeTaskId && !tasks.find(t => t.id === state.activeTaskId)) state.activeTaskId = null;
+    renderTasks();
+    renderLinked();
+    save();
+  });
+
+  document.addEventListener('keydown', e => {
+    if (e.code === 'Space' && !['INPUT', 'TEXTAREA', 'BUTTON', 'SELECT'].includes(e.target.tagName)) {
+      e.preventDefault();
+      toggle();
+    }
+  });
+
+  /* ---------------- init ---------------- */
+  load();
+  els.sound.checked = state.sound;
+  buildDots();
+  renderAll();
+})();
+</script>
+</body>
+</html>
