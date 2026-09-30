@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>3D Loading Spinners</title>
+<style>
+  :root{
+    --bg:#0b0a14;
+    --panel:#161226;
+    --panel-2:#1d1733;
+    --line:rgba(255,255,255,.07);
+    --txt:#ece9f7;
+    --muted:#9a92b8;
+    --accent:#8b6cff;
+    --accent2:#22d3ee;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:
+      radial-gradient(1200px 700px at 15% -10%, #221a3e 0%, transparent 60%),
+      radial-gradient(1000px 600px at 110% 10%, #102a33 0%, transparent 55%),
+      var(--bg);
+    color:var(--txt);
+    font:15px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;
+    padding:32px 22px 48px;
+  }
+  header{max-width:1180px;margin:0 auto 26px}
+  .kicker{
+    font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:var(--accent);
+    font-weight:700;margin:0 0 8px
+  }
+  h1{font-size:clamp(22px,3vw,32px);margin:0 0 8px;font-weight:750;letter-spacing:-.01em}
+  .sub{color:var(--muted);margin:0;max-width:70ch}
+
+  .bar{
+    max-width:1180px;margin:20px auto 0;display:flex;flex-wrap:wrap;gap:14px;align-items:center;
+    padding:12px 16px;background:linear-gradient(180deg,var(--panel),var(--panel-2));
+    border:1px solid var(--line);border-radius:14px
+  }
+  .bar label{color:var(--muted);font-size:13px;display:flex;align-items:center;gap:10px}
+  button{
+    font:inherit;font-size:13px;font-weight:600;color:var(--txt);
+    background:#2a2148;border:1px solid var(--line);border-radius:10px;
+    padding:8px 14px;cursor:pointer;transition:.15s;display:flex;align-items:center;gap:8px
+  }
+  button:hover{background:#342a58}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--accent2)}
+  button.paused .dot{background:#ff7a9c}
+  input[type=range]{
+    -webkit-appearance:none;appearance:none;width:150px;height:4px;border-radius:4px;
+    background:linear-gradient(90deg,var(--accent),var(--accent2));outline:none
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;width:16px;height:16px;border-radius:50%;
+    background:#fff;border:2px solid var(--accent);cursor:pointer
+  }
+  input[type=range]::-moz-range-thumb{
+    width:14px;height:14px;border-radius:50%;background:#fff;border:2px solid var(--accent);cursor:pointer
+  }
+  .val{font-variant-numeric:tabular-nums;color:var(--txt);min-width:2.6em;text-align:right}
+
+  .grid{
+    max-width:1180px;margin:24px auto 0;
+    display:grid;gap:20px;
+    grid-template-columns:repeat(auto-fill,minmax(280px,1fr));
+  }
+  .card{
+    background:linear-gradient(180deg,var(--panel),var(--panel-2));
+    border:1px solid var(--line);border-radius:18px;overflow:hidden;
+    transition:.2s;position:relative
+  }
+  .card:hover{border-color:rgba(139,108,255,.55);transform:translateY(-2px);
+    box-shadow:0 18px 44px -22px rgba(139,108,255,.6)}
+  .canvas-wrap{position:relative;width:100%;aspect-ratio:1/1;background:
+    radial-gradient(circle at 50% 42%, rgba(139,108,255,.10), transparent 62%)}
+  .canvas-wrap canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+  .card-meta{
+    display:flex;align-items:center;justify-content:space-between;gap:12px;
+    padding:12px 16px;border-top:1px solid var(--line)
+  }
+  .card-title{font-size:14px;font-weight:650}
+  .badge{
+    font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;font-weight:700;
+    color:var(--accent2);background:rgba(34,211,238,.1);border:1px solid rgba(34,211,238,.25);
+    padding:3px 8px;border-radius:999px
+  }
+  .fallback{
+    max-width:1180px;margin:24px auto;padding:18px 20px;border:1px dashed var(--line);
+    border-radius:14px;color:var(--muted)
+  }
+  footer{max-width:1180px;margin:30px auto 0;color:var(--muted);font-size:12.5px}
+  code{background:#241d3d;padding:2px 6px;border-radius:6px;color:#cfc6f5;font-size:12px}
+</style>
+</head>
+<body>
+
+<header>
+  <p class="kicker">Three.js · single file</p>
+  <h1>3D Loading Spinners</h1>
+  <p class="sub">Six self-contained WebGL spinners on transparent canvases, all driven by one
+     clock so they loop seamlessly. <b>Hover a card to slow it down.</b></p>
+</header>
+
+<div class="bar">
+  <button id="playBtn" class="dotbtn"><span class="dot"></span><span id="playLabel">Playing</span></button>
+  <label>Speed <input id="speed" type="range" min="0" max="2" step="0.05" value="1"><span class="val" id="speedVal">1.00×</span></label>
+  <label>Zoom <input id="zoom" type="range" min="0.6" max="1.6" step="0.02" value="1"><span class="val" id="zoomVal">1.00×</span></label>
+</div>
+
+<div id="grid" class="grid"></div>
+<div id="fallback" class="fallback" hidden>
+  Could not load Three.js from the CDN — check the network connection and reload.
+</div>
+
+<footer>
+  Everything is generated at runtime: no textures or external assets. Each card is its own
+  <code>WebGLRenderer</code>; swap the <code>build()</code> functions to drop in your own.
+</footer>
+
+<script type="importmap">
+{ "imports": { "three": "https://unpkg.com/three@0.161.0/build/three.module.js" } }
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+
+/* ---------------------------------------------------------------- rigging */
+
+const grid = document.getElementById('grid');
+const cards = [];
+let paused = false, speed = 1, zoom = 1;
+
+const clampDPR = () => Math.min(window.devicePixelRatio || 1, 2);
+
+function addLights(scene){
+  scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+  const key = new THREE.DirectionalLight(0xffffff, 1.25); key.position.set(3, 5, 4); scene.add(key);
+  const fill = new THREE.DirectionalLight(0x8b6cff, 0.95); fill.position.set(-4, -2, -3); scene.add(fill);
+  const rim = new THREE.PointLight(0x22d3ee, 1.1, 24); rim.position.set(-2.5, 3, -4); scene.add(rim);
+}
+
+function resize(rec){
+  const w = rec.wrap.clientWidth, h = rec.wrap.clientHeight;
+  if (!w || !h) return;
+  rec.renderer.setSize(w, h, false);
+  rec.camera.aspect = w / h;
+  rec.camera.updateProjectionMatrix();
+}
+
+function addSpinner({ title, badge, build }){
+  const card = document.createElement('div');
+  card.className = 'card';
+  card.innerHTML =
+    `<div class="canvas-wrap"></div>
+     <div class="card-meta"><span class="card-title"></span><span class="badge"></span></div>`;
+  card.querySelector('.card-title').textContent = title;
+  card.querySelector('.badge').textContent = badge;
+  grid.appendChild(card);
+
+  const wrap = card.querySelector('.canvas-wrap');
+  const renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true });
+  renderer.setPixelRatio(clampDPR());
+  renderer.setClearColor(0x000000, 0);
+  renderer.domElement.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:block';
+  wrap.appendChild(renderer.domElement);
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
+  camera.position.set(0, 0, 6);
+  addLights(scene);
+
+  const inst = build(scene, camera, renderer) || {};
+  const rec = {
+    renderer, scene, camera, wrap, baseZ: 6,
+    update: inst.update || (()=>{}),
+    time: Math.random() * 100,
+    hovered: false
+  };
+  cards.push(rec);
+
+  card.addEventListener('pointerenter', () => rec.hovered = true);
+  card.addEventListener('pointerleave', () => rec.hovered = false);
+
+  const ro = new ResizeObserver(() => resize(rec));
+  ro.observe(wrap);
+  resize(rec);
+  return rec;
+}
+
+/* ------------------------------------------------------------ 1. gyroscope */
+
+function buildGyroscope(scene){
+  const group = new THREE.Group();
+  group.rotation.x = 0.42;
+  scene.add(group);
+
+  const ringMat = new THREE.MeshStandardMaterial({
+    color:0x8b6cff, metalness:0.75, roughness:0.22,
+    emissive:0x241a4d, emissiveIntensity:1
+  });
+  const mkRing = () => new THREE.Mesh(new THREE.TorusGeometry(1, 0.045, 14, 130), ringMat);
+
+  const a = mkRing();
+  const b = mkRing(); b.rotation.y = Math.PI / 2;
+  const c = mkRing(); c.rotation.x = Math.PI / 2;
+  group.add(a, b, c);
+
+  const core = new THREE.Mesh(
+    new THREE.IcosahedronGeometry(0.3, 1),
+    new THREE.MeshStandardMaterial({ color:0x22d3ee, emissive:0x0891b2, emissiveIntensity:1.6,
+      metalness:0.4, roughness:0.3 })
+  );
+  group.add(core);
+
+  return {
+    update(t){
+      group.rotation.y = t * 0.55;
+      a.rotation.x = t * 0.75;                 // plane tilts -> visible precession
+      b.rotation.y = Math.PI / 2 + t * 0.85;
+      c.rotation.z = t * 0.95;
+      core.rotation.set(t * 0.9, t * 0.6, 0);
+      core.scale.setScalar(1 + Math.sin(t * 3) * 0.05);
+    }
+  };
+}
+
+/* ----------------------------------------------------------------- 2. DNA */
+
+function buildDNA(scene){
+  const outer = new THREE.Group();
+  outer.rotation.x = 0.3;
+  const inner = new THREE.Group();
+  outer.add(inner);
+  scene.add(outer);
+
+  const N = 64, TURNS = 3, HEIGHT = 3.2, R = 0.85;
+  const p1 = [], p2 = [];
+  for (let i = 0; i < N; i++){
+    const u = i / (N - 1);
+    const ang = u * TURNS * Math.PI * 2;
+    const y = (u - 0.5) * HEIGHT;
+    p1.push(new THREE.Vector3(Math.cos(ang) * R, y, Math.sin(ang) * R));
+    p2.push(new THREE.Vector3(Math.cos(ang + Math.PI) * R, y, Math.sin(ang + Math.PI) * R));
+  }
+  const c1 = new THREE.CatmullRomCurve3(p1);
+  const c2 = new THREE.CatmullRomCurve3(p2);
+
+  const m1 = new THREE.MeshStandardMaterial({ color:0x8b6cff, metalness:0.6, roughness:0.3, emissive:0x2a1b5e });
+  const m2 = new THREE.MeshStandardMaterial({ color:0x22d3ee, metalness:0.6, roughness:0.3, emissive:0x0e4f5e });
+  inner.add(new THREE.Mesh(new THREE.TubeGeometry(c1, 140, 0.055, 8, false), m1));
+  inner.add(new THREE.Mesh(new THREE.TubeGeometry(c2, 140, 0.055, 8, false), m2));
+
+  const rungMat = new THREE.MeshStandardMaterial({
+    color:0xffffff, emissive:0x555577, metalness:0.2, roughness:0.6,
+    transparent:true, opacity:0.45
+  });
+  const rungGeo = new THREE.CylinderGeometry(0.02, 0.02, 1, 6);
+  const up = new THREE.Vector3(0, 1, 0);
+  for (let i = 5; i < N - 5; i += 6){
+    const A = p1[i], B = p2[i];
+    const m = new THREE.Mesh(rungGeo, rungMat);
+    m.position.copy(A).add(B).multiplyScalar(0.5);
+    m.scale.set(1, A.distanceTo(B), 1);
+    m.quaternion.setFromUnitVectors(up, B.clone().sub(A).normalize());
+    inner.add(m);
+  }
+
+  return { update(t){ inner.rotation.y = t * 0.9; outer.rotation.z = Math.sin(t * 0.35) * 0.14; } };
+}
+
+/* ----------------------------------------------------------- 3. tesseract */
+
+function buildTesseract(scene){
+  const verts = [];
+  for (let i = 0; i < 16; i++)
+    verts.push([ (i&1?0.5:-0.5), (i&2?0.5:-0.5), (i&4?0.5:-0.5), (i&8?0.5:-0.5) ]);
+
+  const edges = [];
+  for (let i = 0; i < 16; i++)
+    for (let j = i + 1; j < 16; j++){
+      let diff = 0;
+      for (let k = 0; k < 4; k++) if (verts[i][k] !== verts[j][k]) diff++;
+      if (diff === 1) edges.push([i, j]);
+    }
+
+  const lineGeo = new THREE.BufferGeometry();
+  lineGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(edges.length * 2 * 3), 3));
+  const lines = new THREE.LineSegments(
+    lineGeo,
+    new THREE.LineBasicMaterial({ color:0x9b7bff, transparent:true, opacity:0.9 })
+  );
+  lines.frustumCulled = false;
+  scene.add(lines);
+
+  const ptGeo = new THREE.BufferGeometry();
+  ptGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(16 * 3), 3));
+  const points = new THREE.Points(
+    ptGeo,
+    new THREE.PointsMaterial({ color:0x22d3ee, size:0.09, transparent:true, opacity:0.95 })
+  );
+  points.frustumCulled = false;
+  scene.add(points);
+
+  const proj = Array.from({ length:16 }, () => new THREE.Vector3());
+
+  function project(t){
+    const a = t * 0.5, b = t * 0.37, c = t * 0.61;
+    const ca = Math.cos(a), sa = Math.sin(a);
+    const cb = Math.cos(b), sb = Math.sin(b);
+    const cc = Math.cos(c), sc = Math.sin(c);
+    for (let i = 0; i < 16; i++){
+      const [x0, y0, z0, w0] = verts[i];
+      const x1 = x0 * ca - w0 * sa;          // rotate XW
+      const w1 = x0 * sa + w0 * ca;
+      const y1 = y0 * cb - w1 * sb;          // rotate YW
+      const w2 = y0 * sb + w1 * cb;
+      const z1 = z0 * cc - w2 * sc;          // rotate ZW
+      const w3 = z0 * sc + w2 * cc;
+      const k = 1.5 / (2.0 - w3);            // 4D -> 3D perspective divide
+      proj[i].set(x1 * k, y1 * k, z1 * k);
+    }
+  }
+
+  return {
+    update(t){
+      project(t);
+      const la = lineGeo.attributes.position.array;
+      let p = 0;
+      for (let e = 0; e < edges.length; e++){
+        const i = edges[e][0], j = edges[e][1];
+        la[p++] = proj[i].x; la[p++] = proj[i].y; la[p++] = proj[i].z;
+        la[p++] = proj[j].x; la[p++] = proj[j].y; la[p++] = proj[j].z;
+      }
+      lineGeo.attributes.position.needsUpdate = true;
+
+      const pa = ptGeo.attributes.position.array;
+      for (let i = 0; i < 16; i++){
+        pa[i*3]   = proj[i].x;
+        pa[i*3+1] = proj[i].y;
+        pa[i*3+2] = proj[i].z;
+      }
+      ptGeo.attributes.position.needsUpdate = true;
+    }
+  };
+}
+
+/* ------------------------------------------------------ 4. particle sphere */
+
+function buildParticleSphere(scene){
+  const COUNT = 1500, R = 1.35;
+  const geo = new THREE.BufferGeometry();
+  const pos   = new Float32Array(COUNT * 3);
+  const base  = new Float32Array(COUNT * 3);
+  const phase = new Float32Array(COUNT);
+  const golden = Math.PI * (3 - Math.sqrt(5));
+
+  for (let i = 0; i < COUNT; i++){
+    const y = 1 - (i / (COUNT - 1)) * 2;
+    const rad = Math.sqrt(Math.max(0, 1 - y * y));
+    const th = golden * i;
+    const x = Math.cos(th) * rad, z = Math.sin(th) * rad;
+    base[i*3] = x; base[i*3+1] = y; base[i*3+2] = z;
+    pos[i*3]  = x * R; pos[i*3+1] = y * R; pos[i*3+2] = z * R;
+    phase[i] = Math.random() * Math.PI * 2;
+  }
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  const points = new THREE.Points(geo, new THREE.PointsMaterial({
+    color:0x9b7bff, size:0.055, transparent:true, opacity:0.9,
+    blending:THREE.AdditiveBlending, depthWrite:false
+  }));
+  points.frustumCulled = false;
+  scene.add(points);
+
+  return {
+    update(t){
+      const a = geo.attributes.position.array;
+      for (let i = 0; i < COUNT; i++){
+        const r = R * (1 + 0.26 * Math.sin(t * 2 + phase[i]));
+        a[i*3]   = base[i*3]   * r;
+        a[i*3+1] = base[i*3+1] * r;
+        a[i*3+2] = base[i*3+2] * r;
+      }
+      geo.attributes.position.needsUpdate = true;
+      points.rotation.y = t * 0.5;
+      points.rotation.x = Math.sin(t * 0.4) * 0.3;
+    }
+  };
+}
+
+/* --------------------------------------------------------- 5. torus knot */
+
+function buildTorusKnot(scene){
+  const geo = new THREE.TorusKnotGeometry(1.05, 0.34, 200, 26, 2, 3);
+  const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
+    color:0x22d3ee, metalness:0.9, roughness:0.16, emissive:0x0e7490, emissiveIntensity:0.85
+  }));
+  scene.add(mesh);
+
+  const wire = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+    color:0xffffff, wireframe:true, transparent:true, opacity:0.1
+  }));
+  mesh.add(wire);
+
+  return { update(t){ mesh.rotation.x = t * 0.6; mesh.rotation.y = t * 0.45; } };
+}
+
+/* ------------------------------------------------------- 6. cube assembly */
+
+function buildCubeAssembly(scene){
+  const group = new THREE.Group();
+  scene.add(group);
+
+  const mkMat = (color, emissive) => new THREE.MeshStandardMaterial({ color, emissive, metalness:0.6, roughness:0.34 });
+  const mA = mkMat(0x8b6cff, 0x2a1b5e);
+  const mB = mkMat(0x22d3ee, 0x0e4f5e);
+
+  const SIZE = 0.68, BASE = 0.34;
+  const geo = new THREE.BoxGeometry(SIZE, SIZE, SIZE, 2, 2, 2);
+  const cubes = [];
+  let idx = 0;
+  for (const sx of [-1, 1]) for (const sy of [-1, 1]) for (const sz of [-1, 1]){
+    const c = new THREE.Mesh(geo, idx++ % 2 ? mA : mB);
+    c.position.set(sx * BASE, sy * BASE, sz * BASE);
+    c.userData.dir = new THREE.Vector3(sx, sy, sz).normalize();
+    group.add(c);
+    cubes.push(c);
+  }
+
+  return {
+    update(t){
+      const raw = 0.5 - 0.5 * Math.cos(t * 1.1);   // smooth 0..1 loop
+      const e = raw * raw * (3 - 2 * raw);         // smoothstep for a crisp snap
+      for (const c of cubes){
+        const d = c.userData.dir;
+        c.position.set(
+          d.x * BASE + d.x * e * 0.95,
+          d.y * BASE + d.y * e * 0.95,
+          d.z * BASE + d.z * e * 0.95
+        );
+        c.rotation.set(e * Math.PI * d.x, e * Math.PI * d.y, e * Math.PI * d.z);
+      }
+      group.rotation.y = t * 0.5;
+      group.rotation.x = 0.5 + Math.sin(t * 0.3) * 0.2;
+    }
+  };
+}
+
+/* -------------------------------------------------------------- assemble */
+
+const spec = [
+  { title:'Gyroscope Rings', badge:'precession', build: buildGyroscope },
+  { title:'DNA Helix',       badge:'tube curve',  build: buildDNA },
+  { title:'Tesseract',       badge:'4D → 3D',     build: buildTesseract },
+  { title:'Particle Sphere',  badge:'additive',    build: buildParticleSphere },
+  { title:'Torus Knot',      badge:'(2,3) knot',  build: buildTorusKnot },
+  { title:'Cube Assembly',   badge:'scatter',     build: buildCubeAssembly },
+];
+
+try {
+  spec.forEach(addSpinner);
+} catch (err){
+  document.getElementById('fallback').hidden = false;
+  console.error(err);
+}
+
+/* --------------------------------------------------------------- controls */
+
+const playBtn  = document.getElementById('playBtn');
+const playLbl  = document.getElementById('playLabel');
+const speedEl  = document.getElementById('speed');
+const speedVal = document.getElementById('speedVal');
+const zoomEl   = document.getElementById('zoom');
+const zoomVal  = document.getElementById('zoomVal');
+
+playBtn.addEventListener('click', () => {
+  paused = !paused;
+  playBtn.classList.toggle('paused', paused);
+  playLbl.textContent = paused ? 'Paused' : 'Playing';
+});
+
+speedEl.addEventListener('input', () => {
+  speed = parseFloat(speedEl.value);
+  speedVal.textContent = speed.toFixed(2) + '×';
+});
+
+zoomEl.addEventListener('input', () => {
+  zoom = parseFloat(zoomEl.value);
+  zoomVal.textContent = zoom.toFixed(2) + '×';
+  for (const c of cards){
+    c.camera.position.z = c.baseZ / zoom;
+    c.camera.updateProjectionMatrix();
+  }
+});
+
+/* ------------------------------------------------------------ render loop */
+
+const clock = new THREE.Clock();
+
+function tick(){
+  requestAnimationFrame(tick);
+  const dt = Math.min(clock.getDelta(), 0.05);
+
+  for (const c of cards){
+    if (!paused) c.time += dt * speed * (c.hovered ? 0.22 : 1);
+    c.update(c.time, dt);
+    c.renderer.render(c.scene, c.camera);
+  }
+}
+tick();
+</script>
+</body>
+</html>
